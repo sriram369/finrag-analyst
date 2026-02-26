@@ -7,11 +7,10 @@ answer_question() is the single public function called by the API.
 """
 
 import cohere
-import google.generativeai as genai
 from llama_index.embeddings.cohere import CohereEmbedding
 
 import vector_store
-from config import COHERE_API_KEY, GOOGLE_API_KEY
+from config import COHERE_API_KEY
 
 # ── Clients (module-level, reused across requests) ────────────────────────────
 _embed_model = CohereEmbedding(
@@ -20,8 +19,6 @@ _embed_model = CohereEmbedding(
     input_type="search_query",
 )
 _co = cohere.Client(COHERE_API_KEY)
-genai.configure(api_key=GOOGLE_API_KEY)
-_gemini = genai.GenerativeModel("gemini-1.5-flash")
 
 # ── Prompt template ───────────────────────────────────────────────────────────
 _SYSTEM = (
@@ -72,11 +69,6 @@ def _build_context(chunks: list[dict]) -> str:
         )
         parts.append(f"{header}\n{c['text'].strip()}")
     return "\n\n---\n\n".join(parts)
-
-
-def _estimate_cost(input_tokens: int, output_tokens: int) -> float:
-    # Gemini 1.5 Flash pricing: $0.075/1M input, $0.30/1M output
-    return (input_tokens * 0.075 + output_tokens * 0.30) / 1_000_000
 
 
 def _faithfulness_score(answer: str, chunks: list[dict]) -> float:
@@ -133,24 +125,23 @@ def answer_question(
     # 3. Cohere rerank → top-5
     top_chunks = _rerank(question, raw_chunks, top_n=5)
 
-    # 4. Build context + call Gemini
+    # 4. Build context + call Cohere Command-R
     context = _build_context(top_chunks)
     prompt = _USER_TMPL.format(context=context, question=question)
 
-    response = _gemini.generate_content(
-        [_SYSTEM, prompt],
-        generation_config={"temperature": 0.1, "max_output_tokens": 1024},
+    response = _co.chat(
+        message=prompt,
+        model="command-r",
+        preamble=_SYSTEM,
+        temperature=0.1,
+        max_tokens=1024,
     )
     answer_text = response.text.strip()
 
-    # 5. Estimate cost
-    try:
-        in_tok = response.usage_metadata.prompt_token_count
-        out_tok = response.usage_metadata.candidates_token_count
-    except Exception:
-        in_tok = len(prompt) // 4
-        out_tok = len(answer_text) // 4
-    cost = _estimate_cost(in_tok, out_tok)
+    # 5. Estimate cost (Command-R: $0.15/1M input, $0.60/1M output)
+    in_tok = len(prompt) // 4
+    out_tok = len(answer_text) // 4
+    cost = (in_tok * 0.15 + out_tok * 0.60) / 1_000_000
 
     # 6. Faithfulness + citations
     faith = _faithfulness_score(answer_text, top_chunks)
