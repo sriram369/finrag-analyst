@@ -17,4 +17,4 @@ ENV PYTHONPATH=/app/src:/app/api
 
 EXPOSE 8000
 
-CMD PYTHONPATH=/app/src:/app/api uvicorn api.main:app --host 0.0.0.0 --port 8000
+CMD PYTHONPATH=/app/src:/app/api uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
