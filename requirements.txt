@@ -1,14 +1,13 @@
 # Data Ingestion
 sec-edgar-downloader
-llama-cloud-services      # LlamaParse PDF parser
-llama-cloud<1.0           # pin to compatible version with llama-cloud-services
+llama-cloud-services
+llama-cloud<1.0
 python-dotenv
 tqdm
 
-# LlamaIndex core + components
+# LlamaIndex — SemanticSplitter is bundled inside llama-index-core (no separate package)
 llama-index-core
 llama-index-embeddings-huggingface
-llama-index-node-parser-semantic-splitter
 
 # Embeddings model
 sentence-transformers
@@ -28,10 +27,6 @@ google-generativeai
 fastapi
 uvicorn
 pydantic
-
-# Evaluation
-ragas
-datasets
 
 # Observability
 langsmith
