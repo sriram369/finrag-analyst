@@ -131,7 +131,7 @@ def answer_question(
 
     response = _co.chat(
         message=prompt,
-        model="command-r",
+        model="command-r7b-12-2024",
         preamble=_SYSTEM,
         temperature=0.1,
         max_tokens=1024,
