@@ -2,22 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system deps for sentence-transformers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source
 COPY src/ ./src/
 COPY api/ ./api/
-
-# Pre-download embedding model so Railway startup is fast
-RUN python -c "from llama_index.embeddings.huggingface import HuggingFaceEmbedding; \
-    HuggingFaceEmbedding(model_name='BAAI/bge-large-en-v1.5')" || true
 
 EXPOSE 8000
 

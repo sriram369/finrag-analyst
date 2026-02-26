@@ -24,16 +24,16 @@ from typing import Callable
 
 from llama_cloud_services import LlamaParse
 from llama_index.core import Document
-from llama_index.core.node_parser import SemanticSplitterNodeParser
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.embeddings.cohere import CohereEmbedding
 from sec_edgar_downloader import Downloader
 
 from config import (
-    LLAMA_CLOUD_API_KEY,
+    LLAMA_CLOUD_API_KEY, COHERE_API_KEY,
     SEC_USER_AGENT_NAME, SEC_USER_AGENT_EMAIL,
     DATA_RAW_DIR,
     TICKERS, FILING_TYPES,
-    EMBED_MODEL_NAME, SEC_SECTIONS,
+    SEC_SECTIONS,
 )
 import vector_store
 
@@ -42,21 +42,30 @@ ProgressFn = Callable[[dict], None]
 
 
 # ── Shared embedding model (loaded once, reused across all files) ─────────────
-_embed_model: HuggingFaceEmbedding | None = None
-_chunker: SemanticSplitterNodeParser | None = None
+_embed_model: CohereEmbedding | None = None
+_chunker: SentenceSplitter | None = None
 
 
-def get_chunker(emit: ProgressFn) -> SemanticSplitterNodeParser:
-    global _embed_model, _chunker
-    if _chunker is None:
-        emit({"type": "system", "message": f"Loading embedding model {EMBED_MODEL_NAME}…"})
-        _embed_model = HuggingFaceEmbedding(model_name=EMBED_MODEL_NAME)
-        _chunker = SemanticSplitterNodeParser(
-            buffer_size=1,
-            breakpoint_percentile_threshold=95,
-            embed_model=_embed_model,
+def get_embed_model() -> CohereEmbedding:
+    global _embed_model
+    if _embed_model is None:
+        _embed_model = CohereEmbedding(
+            api_key=COHERE_API_KEY,
+            model_name="embed-english-v3.0",
+            input_type="search_document",
         )
-        emit({"type": "system", "message": "Embedding model loaded and cached ✓"})
+    return _embed_model
+
+
+def get_chunker(emit: ProgressFn) -> SentenceSplitter:
+    global _chunker
+    if _chunker is None:
+        emit({"type": "system", "message": "Initialising chunker + Cohere embeddings…"})
+        # SentenceSplitter: respects sentence boundaries, no API calls during chunking
+        # Cohere embed API called only once per chunk batch (not per sentence)
+        _chunker = SentenceSplitter(chunk_size=1024, chunk_overlap=200)
+        get_embed_model()   # warm up Cohere client
+        emit({"type": "system", "message": "Chunker and Cohere embeddings ready ✓"})
     return _chunker
 
 
@@ -193,7 +202,7 @@ def extract_metadata(file_path: Path, ticker: str, filing_types: list[str]) -> d
 
 # ── Step 5 — Semantic chunk ───────────────────────────────────────────────────
 
-def chunk_text(text: str, metadata: dict, chunker: SemanticSplitterNodeParser,
+def chunk_text(text: str, metadata: dict, chunker: SentenceSplitter,
                emit: ProgressFn) -> list[dict]:
     emit({"type": "step", "step": "chunk", "ticker": metadata["ticker"],
           "status": "started", "message": "Semantic chunking…"})
@@ -225,10 +234,10 @@ def embed_and_store(chunks: list[dict], emit: ProgressFn) -> int:
     if not chunks:
         return 0
     emit({"type": "step", "step": "embed", "count": len(chunks),
-          "status": "started", "message": f"Embedding {len(chunks)} chunks…"})
+          "status": "started", "message": f"Embedding {len(chunks)} chunks via Cohere…"})
     try:
         texts = [c["text"] for c in chunks]
-        vectors = _embed_model.get_text_embedding_batch(texts, show_progress=False)
+        vectors = get_embed_model().get_text_embedding_batch(texts)
 
         emit({"type": "step", "step": "store", "count": len(chunks),
               "status": "started", "message": "Storing in Qdrant Cloud…"})

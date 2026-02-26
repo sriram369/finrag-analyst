@@ -5,18 +5,14 @@ llama-cloud<1.0
 python-dotenv
 tqdm
 
-# LlamaIndex — SemanticSplitter is bundled inside llama-index-core (no separate package)
+# LlamaIndex — core + Cohere embeddings (no torch needed)
 llama-index-core
-llama-index-embeddings-huggingface
-
-# Embeddings model
-sentence-transformers
-torch
+llama-index-embeddings-cohere
 
 # Vector DB
 qdrant-client
 
-# Retrieval
+# Retrieval + Embeddings (Cohere handles both)
 rank-bm25
 cohere
 
