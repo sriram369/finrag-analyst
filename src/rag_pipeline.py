@@ -6,59 +6,49 @@ Question → Cohere embed → Qdrant vector search → Cohere rerank → Gemini 
 answer_question() is the single public function called by the API.
 """
 
-import os
-import time
 import cohere
 import google.generativeai as genai
+from llama_index.embeddings.cohere import CohereEmbedding
 
 import vector_store
 from config import COHERE_API_KEY, GOOGLE_API_KEY
 
-# ── Clients (module-level so they're reused across requests) ──────────────────
+# ── Clients (module-level, reused across requests) ────────────────────────────
+_embed_model = CohereEmbedding(
+    api_key=COHERE_API_KEY,
+    model_name="embed-english-v3.0",
+    input_type="search_query",
+)
 _co = cohere.Client(COHERE_API_KEY)
 genai.configure(api_key=GOOGLE_API_KEY)
 _gemini = genai.GenerativeModel("gemini-1.5-flash")
 
 # ── Prompt template ───────────────────────────────────────────────────────────
-_SYSTEM = """You are FinRAG Analyst, an expert financial analyst that answers questions \
-strictly based on SEC filings (10-K, 10-Q).
+_SYSTEM = (
+    "You are FinRAG Analyst, an expert financial analyst that answers questions "
+    "strictly based on SEC filings (10-K, 10-Q).\n\n"
+    "Rules:\n"
+    "- Answer ONLY from the provided context passages. Never hallucinate.\n"
+    "- Be concise but thorough. Use bullet points for lists.\n"
+    "- If the context doesn't contain the answer, say "
+    "\"I couldn't find that information in the available filings.\"\n"
+    "- Always reference which company/filing the information comes from.\n"
+    "- For numbers, reproduce them exactly as stated in the filing.\n"
+)
 
-Rules:
-- Answer ONLY from the provided context passages. Never hallucinate.
-- Be concise but thorough. Use bullet points for lists.
-- If the context doesn't contain the answer, say "I couldn't find that information in the available filings."
-- Always reference which company/filing the information comes from.
-- For numbers, reproduce them exactly as stated in the filing.
-"""
-
-_USER_TMPL = """Context passages from SEC filings:
-{context}
-
----
-Question: {question}
-
-Answer:"""
+_USER_TMPL = "Context passages from SEC filings:\n{context}\n\n---\nQuestion: {question}\n\nAnswer:"
 
 
 def _embed_query(text: str) -> list[float]:
-    """Embed a query string using Cohere embed-english-v3.0."""
-    resp = _co.embed(
-        texts=[text],
-        model="embed-english-v3.0",
-        input_type="search_query",
-    )
-    return resp.embeddings[0]
+    return _embed_model.get_text_embedding(text)
 
 
 def _rerank(query: str, chunks: list[dict], top_n: int = 5) -> list[dict]:
-    """
-    Cohere rerank — re-orders the retrieved chunks by relevance.
-    Falls back to original order if rerank fails (e.g. trial limits).
-    """
+    """Cohere rerank — falls back to vector order on failure (trial limits etc.)."""
     if not chunks:
         return chunks
     try:
-        docs = [c["text"][:2000] for c in chunks]   # Cohere 2k char limit per doc
+        docs = [c["text"][:2000] for c in chunks]
         resp = _co.rerank(
             query=query,
             documents=docs,
@@ -75,22 +65,22 @@ def _build_context(chunks: list[dict]) -> str:
     parts = []
     for i, c in enumerate(chunks, 1):
         m = c["metadata"]
-        header = f"[{i}] {m.get('ticker','?')} | {m.get('form_type','?')} {m.get('filing_year','?')} | {m.get('section','?')}"
+        header = (
+            f"[{i}] {m.get('ticker','?')} | "
+            f"{m.get('form_type','?')} {m.get('filing_year','?')} | "
+            f"{m.get('section','?')}"
+        )
         parts.append(f"{header}\n{c['text'].strip()}")
     return "\n\n---\n\n".join(parts)
 
 
 def _estimate_cost(input_tokens: int, output_tokens: int) -> float:
-    # Gemini 1.5 Flash pricing: $0.075/1M input, $0.30/1M output (USD)
+    # Gemini 1.5 Flash pricing: $0.075/1M input, $0.30/1M output
     return (input_tokens * 0.075 + output_tokens * 0.30) / 1_000_000
 
 
 def _faithfulness_score(answer: str, chunks: list[dict]) -> float:
-    """
-    Simple lexical faithfulness: what fraction of answer sentences
-    have a supporting chunk with >=30% word overlap.
-    Not perfect, but zero-cost and fast.
-    """
+    """Lexical faithfulness: fraction of answer sentences supported by context."""
     if not chunks or not answer.strip():
         return 1.0
     context_words = set()
@@ -101,14 +91,11 @@ def _faithfulness_score(answer: str, chunks: list[dict]) -> float:
     if not sentences:
         return 1.0
 
-    supported = 0
-    for sent in sentences:
-        words = set(sent.lower().split())
-        if not words:
-            continue
-        overlap = len(words & context_words) / len(words)
-        if overlap >= 0.30:
-            supported += 1
+    supported = sum(
+        1 for sent in sentences
+        if (words := set(sent.lower().split()))
+        and len(words & context_words) / len(words) >= 0.30
+    )
     return round(supported / len(sentences), 2)
 
 
@@ -118,10 +105,8 @@ def answer_question(
     form_type: str | None = None,
     filing_year: int | None = None,
 ) -> dict:
-    """
-    Full RAG pipeline.
-    Returns: {answer, citations, cost_usd, faithfulness}
-    """
+    """Full RAG pipeline. Returns {answer, citations, cost_usd, faithfulness}."""
+
     # 1. Embed question
     q_vec = _embed_query(question)
 
@@ -136,7 +121,10 @@ def answer_question(
 
     if not raw_chunks:
         return {
-            "answer": "No relevant filings found. Please ingest some SEC filings first via the Ingest Data page.",
+            "answer": (
+                "No relevant filings found in the knowledge base. "
+                "Please ingest some SEC filings first via the **Ingest Data** page."
+            ),
             "citations": [],
             "cost_usd": 0.0,
             "faithfulness": 1.0,
@@ -155,7 +143,7 @@ def answer_question(
     )
     answer_text = response.text.strip()
 
-    # 5. Estimate cost (Gemini token counts not always available — fallback to char estimate)
+    # 5. Estimate cost
     try:
         in_tok = response.usage_metadata.prompt_token_count
         out_tok = response.usage_metadata.candidates_token_count
@@ -164,22 +152,21 @@ def answer_question(
         out_tok = len(answer_text) // 4
     cost = _estimate_cost(in_tok, out_tok)
 
-    # 6. Faithfulness score
+    # 6. Faithfulness + citations
     faith = _faithfulness_score(answer_text, top_chunks)
 
-    # 7. Build citations
-    citations = []
-    for c in top_chunks:
-        m = c["metadata"]
-        citations.append({
-            "chunk_id":    m.get("chunk_id", ""),
-            "ticker":      m.get("ticker", ""),
-            "form_type":   m.get("form_type", ""),
-            "filing_year": m.get("filing_year", 0),
-            "section":     m.get("section", ""),
+    citations = [
+        {
+            "chunk_id":    c["metadata"].get("chunk_id", ""),
+            "ticker":      c["metadata"].get("ticker", ""),
+            "form_type":   c["metadata"].get("form_type", ""),
+            "filing_year": c["metadata"].get("filing_year", 0),
+            "section":     c["metadata"].get("section", ""),
             "excerpt":     c["text"][:400],
             "score":       round(c["score"], 3),
-        })
+        }
+        for c in top_chunks
+    ]
 
     return {
         "answer":      answer_text,

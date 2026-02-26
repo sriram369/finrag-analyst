@@ -146,28 +146,21 @@ async def stream_progress(job_id: str):
 
 @app.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest):
-    """
-    Full RAG pipeline:
-    HyDE expansion → hybrid retrieval → Cohere rerank → Gemini generation
-    (Phase 3 + 4 — wired in once those modules are built)
-    """
+    """Full RAG pipeline: embed → vector search → rerank → Gemini answer."""
+    import traceback
     start = time.time()
 
-    # Phase 3/4 stubs — will be replaced when retriever.py + rag_pipeline.py are done
     try:
         from rag_pipeline import answer_question
-        result = await asyncio.get_event_loop().run_in_executor(
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
             None, answer_question, request.question,
             request.ticker, request.form_type, request.filing_year,
         )
-    except ImportError:
-        # Pipeline not yet built — return a placeholder
-        result = {
-            "answer": "RAG pipeline coming soon — ingestion is Phase 1, retrieval is Phase 3.",
-            "citations": [],
-            "faithfulness": None,
-            "cost_usd": 0.0,
-        }
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"[query] ERROR: {e}\n{tb}")
+        raise HTTPException(status_code=500, detail=f"RAG pipeline error: {e}")
 
     latency_ms = int((time.time() - start) * 1000)
 
