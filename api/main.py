@@ -18,7 +18,10 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+# Ensure both src/ and api/ are importable regardless of working directory
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_root, "src"))
+sys.path.insert(0, os.path.join(_root, "api"))
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
