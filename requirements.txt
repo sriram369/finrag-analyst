@@ -1,0 +1,37 @@
+# Data Ingestion
+sec-edgar-downloader
+llama-cloud-services      # LlamaParse PDF parser
+llama-cloud<1.0           # pin to compatible version with llama-cloud-services
+python-dotenv
+tqdm
+
+# LlamaIndex core + components
+llama-index-core
+llama-index-embeddings-huggingface
+llama-index-node-parser-semantic-splitter
+
+# Embeddings model
+sentence-transformers
+torch
+
+# Vector DB
+qdrant-client
+
+# Retrieval
+rank-bm25
+cohere
+
+# LLM
+google-generativeai
+
+# API backend
+fastapi
+uvicorn
+pydantic
+
+# Evaluation
+ragas
+datasets
+
+# Observability
+langsmith

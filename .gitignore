@@ -1,0 +1,20 @@
+# Secrets — NEVER commit this
+.env
+
+# Data — large files, don't commit
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+
+# OS
+.DS_Store
