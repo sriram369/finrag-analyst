@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://YOUR_RAILWAY_URL.railway.app"
+    "NEXT_PUBLIC_API_URL": "https://finrag-analyst-production.up.railway.app"
   }
 }
