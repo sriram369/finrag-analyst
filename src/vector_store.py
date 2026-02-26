@@ -29,18 +29,23 @@ def ensure_collection() -> None:
             collection_name=QDRANT_COLLECTION,
             vectors_config=VectorParams(size=EMBED_DIMENSION, distance=Distance.COSINE),
         )
-        # Create indexes so metadata filtering works
-        for field, ftype in [
-            ("ticker",      PayloadSchemaType.KEYWORD),
-            ("form_type",   PayloadSchemaType.KEYWORD),
-            ("filing_year", PayloadSchemaType.INTEGER),
-            ("section",     PayloadSchemaType.KEYWORD),
-        ]:
+
+    # Always ensure payload indexes exist (safe to call on existing collections —
+    # Qdrant will backfill indexes over any pre-existing points)
+    for field, ftype in [
+        ("ticker",      PayloadSchemaType.KEYWORD),
+        ("form_type",   PayloadSchemaType.KEYWORD),
+        ("filing_year", PayloadSchemaType.INTEGER),
+        ("section",     PayloadSchemaType.KEYWORD),
+    ]:
+        try:
             client.create_payload_index(
                 collection_name=QDRANT_COLLECTION,
                 field_name=field,
                 field_schema=ftype,
             )
+        except Exception:
+            pass  # index already exists — that's fine
 
 
 def upsert_chunks(chunks: list[dict], vectors: list[list[float]]) -> int:
